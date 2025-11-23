@@ -1,0 +1,402 @@
+// INCLUSÃO DE BIBLIOTECAS
+#include <Adafruit_Fingerprint.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+
+
+// Endereço comum do LCD (pode ser 0x27 ou 0x3F)
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+void msg(String linha1, String linha2 = "") {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(linha1);
+
+  lcd.setCursor(0, 1);
+  lcd.print(linha2);
+}
+
+#include <SoftwareSerial.h>
+
+
+
+//SoftwareSerial bio(2, 3);
+
+#define pinLed 7
+#define pinLed2 6
+#define hall 11
+// INSTANCIANDO OBJETOS
+
+Adafruit_Fingerprint finger = Adafruit_Fingerprint(&Serial);
+
+// DECLARAÇÃO DE FUNÇÕES
+
+
+
+
+
+
+
+
+
+
+// DECLARAÇÃO DE VARIÁVEIS
+bool grava = false; // TRUE PARA GRAVAR UMA IMPRESSÃO NO ID = 1 DURANTE SETUP
+int id = 1;
+
+bool invadido = false;
+bool sistemaDesbloqueado = false;  // TRUE = hall desativado
+unsigned long tempoSemIman = 0;
+bool invasaoDetectada = false;
+
+#define botao 8
+
+
+
+void setup() {
+
+  lcd.init();
+  lcd.backlight();
+
+  Serial.begin(9600);
+
+  pinMode(pinLed , OUTPUT);
+  digitalWrite(pinLed, LOW);
+
+  pinMode(pinLed2 , OUTPUT);
+  digitalWrite(pinLed2, LOW);
+
+  digitalWrite(pinLed, HIGH);   // sistema começa bloqueado
+  digitalWrite(pinLed2, LOW);
+
+  pinMode(hall, INPUT_PULLUP);   // sensor hall
+  pinMode(botao, INPUT_PULLUP);  // botão pino 8
+
+  finger.begin(57600);
+  if (finger.verifyPassword()) {
+    lcd.print("Found sensor!");
+    delay(1500);
+  } else {
+    lcd.print("Sensor ERROR!");
+    while (1);
+  }
+}
+
+void loop() {
+  
+  // --- SE SISTEMA ESTÁ DESBLOQUEADO ---
+  if (sistemaDesbloqueado) {
+
+    // Se botão no pino 8 for pressionado → voltar ao normal
+    if (digitalRead(botao) == LOW) {
+      sistemaDesbloqueado = false;
+      msg("Sistema", "Ativado");
+      digitalWrite(pinLed, HIGH);
+      digitalWrite(pinLed2, LOW);
+      delay(1500);
+    }
+
+    return;  // ignorar resto do loop enquanto desbloqueado
+  }
+
+
+  // --- MONITORAR O SENSOR HALL ---  
+  if (digitalRead(hall) == HIGH) {  // sem imã detectado
+    if (tempoSemIman == 0) tempoSemIman = millis();
+
+    if (millis() - tempoSemIman > 1000 && !invasaoDetectada) {
+      invasaoDetectada = true;
+      msg("INVADIDO", "");
+      digitalWrite(pinLed, HIGH);
+      digitalWrite(pinLed2, LOW);
+    }
+  } else {
+    tempoSemIman = 0;  // imã presente
+  }
+
+
+  // --- SE O SISTEMA ESTÁ EM MODO INVADIDO → TRAVAR TUDO ---
+  if (invasaoDetectada) {
+
+    // espera até uma digital válida
+    byte leitura = getFingerprintID();
+    if (leitura == 1) {       // digital correta
+      msg("Desbloqueado", "");
+      digitalWrite(pinLed, LOW);     // apagado
+      digitalWrite(pinLed2, HIGH);   // aceso
+
+      invasaoDetectada = false;
+      sistemaDesbloqueado = true;  // desativa o sensor hall
+      delay(1500);
+    }
+
+    return;   // trava o sistema nesta tela
+  }
+
+
+  // --- MODO NORMAL: leitura de digital opcional ---
+  byte leitura = getFingerprintID();
+  if (leitura == 1) {
+    msg("Acesso OK", "");
+    digitalWrite(pinLed, HIGH);
+    delay(1000);
+    digitalWrite(pinLed, LOW);
+
+    sistemaDesbloqueado = true;  // desativa o hall
+    msg("Sistema", "Desbloqueado");
+    digitalWrite(pinLed, LOW);
+    digitalWrite(pinLed2, HIGH);
+    delay(1500);
+  }
+}
+
+// IMPLEMENTO DE FUNÇÕES
+
+uint8_t getFingerprintEnroll() {
+  int p = -1;
+  msg("Waitingfinger"); Serial.println(id);
+  while (p != FINGERPRINT_OK) {
+    p = finger.getImage();
+    switch (p) {
+      case FINGERPRINT_OK:
+        msg("Image taken");
+        delay(3000);
+        break;
+      case FINGERPRINT_NOFINGER:
+        msg(".");
+        break;
+      case FINGERPRINT_PACKETRECIEVEERR:
+        msg("error");
+        break;
+      case FINGERPRINT_IMAGEFAIL:
+        msg("Imaging error");
+        break;
+      default:
+        msg("Unknown error");
+        break;
+    }
+  }
+
+  // OK success!
+
+  p = finger.image2Tz(1);
+  switch (p) {
+    case FINGERPRINT_OK:
+      msg("Image converted");
+      delay(3000);
+      break;
+    case FINGERPRINT_IMAGEMESS:
+      msg("too messy");
+      delay(3000);
+      return p;
+    case FINGERPRINT_PACKETRECIEVEERR:
+      msg("error");
+      delay(3000);
+      return p;
+    case FINGERPRINT_FEATUREFAIL:
+      msg("not features");
+      delay(3000);
+      return p;
+    case FINGERPRINT_INVALIDIMAGE:
+      msg("not features");
+      delay(3000);
+      return p;
+    default:
+      msg("Unknown error");
+      delay(3000);
+      return p;
+  }
+
+  msg("Remove finger");
+  delay(2000);
+  p = 0;
+  while (p != FINGERPRINT_NOFINGER) {
+    p = finger.getImage();
+  }
+  msg("ID 1"); 
+  p = -1;
+  msg("finger again");
+  while (p != FINGERPRINT_OK) {
+    p = finger.getImage();
+    switch (p) {
+      case FINGERPRINT_OK:
+        msg("Image taken");
+        delay(3000);
+        break;
+      case FINGERPRINT_NOFINGER:
+        msg(".");
+        break;
+      case FINGERPRINT_PACKETRECIEVEERR:
+        msg("error");
+        delay(3000);
+        break;
+      case FINGERPRINT_IMAGEFAIL:
+        msg("Imaging error");
+        delay(3000);
+        break;
+      default:
+        msg("Unknown error");
+        delay(3000);
+        break;
+    }
+  }
+
+  // OK success!
+
+  p = finger.image2Tz(2);
+  switch (p) {
+    case FINGERPRINT_OK:
+      msg("Image converted");
+      delay(3000);
+      break;
+    case FINGERPRINT_IMAGEMESS:
+      msg("too messy");
+      delay(3000);
+      return p;
+    case FINGERPRINT_PACKETRECIEVEERR:
+      msg("error");
+      delay(3000);
+      return p;
+    case FINGERPRINT_FEATUREFAIL:
+      msg("not features");
+      delay(3000);
+      return p;
+    case FINGERPRINT_INVALIDIMAGE:
+      msg("not features");
+      delay(3000);
+      return p;
+    default:
+      msg("Unknown error");
+      delay(3000);
+      return p;
+  }
+
+  // OK converted!
+  msg("Creating #1");  
+
+  p = finger.createModel();
+  if (p == FINGERPRINT_OK) {
+    msg("matched!");
+    delay(3000);
+  } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
+    msg("error");
+    delay(3000);
+    return p;
+  } else if (p == FINGERPRINT_ENROLLMISMATCH) {
+    msg("did not match");
+    delay(3000);
+    return p;
+  } else {
+    msg("Unknown error");
+    delay(3000);
+    return p;
+  }
+
+  msg("ID 1"); 
+  delay(3000);
+  p = finger.storeModel(id);
+  if (p == FINGERPRINT_OK) {
+    msg("Stored!");
+    delay(3000);
+  } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
+    msg("error");
+    delay(3000);
+    return p;
+  } else if (p == FINGERPRINT_BADLOCATION) {
+    msg("Could not store");
+    delay(3000);
+    return p;
+  } else if (p == FINGERPRINT_FLASHERR) {
+    msg("Error");
+    delay(3000);
+    return p;
+  } else {
+    msg("Unknown error");
+    delay(3000);
+    return p;
+  }
+
+  return true;
+}
+
+uint8_t getFingerprintID() {
+  uint8_t p = finger.getImage();
+  switch (p) {
+    case FINGERPRINT_OK:
+      msg("Image taken");
+      delay(3000);
+      break;
+    case FINGERPRINT_NOFINGER:
+      return p;
+    case FINGERPRINT_PACKETRECIEVEERR:
+      msg("error");
+      delay(3000);
+      return p;
+    case FINGERPRINT_IMAGEFAIL:
+      msg("Imaging error");
+      delay(3000);
+      return p;
+    default:
+      msg("error");
+      delay(3000);
+      return p;
+  }
+
+  // OK success!
+
+  p = finger.image2Tz();
+  switch (p) {
+    case FINGERPRINT_OK:
+      msg("Image converted");
+      delay(3000);
+      break;
+    case FINGERPRINT_IMAGEMESS:
+      msg("Image too messy");
+      delay(3000);
+      return p;
+    case FINGERPRINT_PACKETRECIEVEERR:
+      msg("error");
+      delay(3000);
+      return p;
+    case FINGERPRINT_FEATUREFAIL:
+      msg("not features");
+      delay(3000);
+      return p;
+    case FINGERPRINT_INVALIDIMAGE:
+      msg("not features");
+      delay(3000);
+      return p;
+    default:
+      msg("error");
+      delay(3000);
+      return p;
+  }
+
+  // OK converted!
+  p = finger.fingerSearch();
+  if (p == FINGERPRINT_OK) {
+
+    msg("Found match!");
+    delay(3000);
+  } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
+    msg("error");
+    delay(3000);
+    return p;
+  } else if (p == FINGERPRINT_NOTFOUND) {
+    msg("not find");
+    delay(3000);
+    return p;
+  } else {
+    msg("error");
+    delay(3000);
+    return p;
+  }
+
+  // found a match!
+  msg("Found ID 1#"); 
+  delay(3000);
+  msg("confidence "); 
+
+  return finger.fingerID;
+}
