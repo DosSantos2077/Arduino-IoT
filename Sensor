@@ -5,8 +5,8 @@ SoftwareSerial esp(RX, TX);
 
 const int sensorHallPin = 4;
 
-String WIFI_SSID = "Gabriel";
-String WIFI_PASS = "03800442";
+String WIFI_SSID = "";
+String WIFI_PASS = "";
 
 String THINGSPEAK_HOST = "api.thingspeak.com";
 String WRITE_API_KEY = "QWJMV44QXFXL5ONY";
